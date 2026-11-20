@@ -13,6 +13,7 @@ import { generateJsonLd, generateToolMetadata } from '@/lib/seo';
 import toolConfig from '@/tool/tool.config';
 import { getPublicSiteUrl, templateMetadata } from '@/tool/template-metadata';
 import { notepadTool } from '@/tool/notepad-state';
+import type { ToolState } from '@/tool/types';
 import { ToolCanvas } from '@/tool/components/tool-canvas';
 import { ToolSidebar } from '@/tool/components/tool-sidebar';
 import { ToolToolbar } from '@/tool/components/tool-toolbar';
@@ -116,16 +117,24 @@ describe('app and seo', () => {
   });
 
   it('renders tool components', () => {
+    const state: ToolState = {
+      input: 'Hello world',
+      caseSensitive: false,
+      excludeStopwords: false,
+      normalizeAccents: true,
+      sortMode: 'count',
+      filter: '',
+    };
     render(
       <>
-        <ToolToolbar />
-        <ToolSidebar text="Hello world" fontSize={16} onFontSizeChange={() => {}} />
-        <ToolCanvas text="" fontSize={16} />
+        <ToolToolbar caseSensitive={false} onToggleCaseSensitive={() => {}} />
+        <ToolSidebar state={state} onChange={() => {}} />
+        <ToolCanvas state={state} canvasRef={undefined} />
       </>
     );
 
     expect(screen.getByRole('link', { name: 'Open help page' })).toBeInTheDocument();
-    expect(screen.getByText('11')).toBeInTheDocument(); // char count for "Hello world"
-    expect(screen.getByRole('application', { name: 'Notepad canvas' })).toBeInTheDocument();
+    expect(screen.getAllByText('2')).toHaveLength(3); // total words, a count cell, table rank
+    expect(screen.getByRole('application', { name: 'Word frequency analyzer canvas' })).toBeInTheDocument();
   });
 });

@@ -54,24 +54,38 @@ vi.mock('@itsjust/core', () => ({
 
 vi.mock('@/tool', () => ({
   toolConfig: {
-    id: 'simple-notepad',
-    name: 'Notepad',
+    id: 'word-frequency-analyzer',
+    name: 'Word Frequency Analyzer',
     version: '1.0.0',
     features: { sidebar: true },
-    theme: { brand: 'Notepad' },
+    theme: { brand: 'Word Frequency Analyzer' },
   },
   templateBaseVersion: '1.1.0',
-  ToolCanvas: ({ text }: { text: string }) => <div>canvas:{text}</div>,
+  ToolCanvas: ({ state }: { state: { input: string } }) => <div>canvas:{state.input}</div>,
   ToolToolbar: () => <div>toolbar</div>,
-  ToolSidebar: ({ text }: { text: string }) => <div>sidebar:{text}</div>,
+  ToolSidebar: () => <div>sidebar</div>,
 }));
 
-vi.mock('@/tool/notepad-state', () => ({
-  notepadTool: {
-    serialize: (state: unknown) => JSON.stringify(state),
-    deserialize: () => ({ success: true, data: { content: 'From Shared Url', title: '' } }),
-  },
-}));
+vi.mock('@/tool/tool-definition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/tool/tool-definition')>();
+  return {
+    ...actual,
+    wordFrequencyTool: {
+      serialize: (state: unknown) => JSON.stringify(state),
+      deserialize: () => ({
+        success: true,
+        data: {
+          input: 'From Shared Url',
+          caseSensitive: false,
+          excludeStopwords: false,
+          normalizeAccents: true,
+          sortMode: 'count',
+          filter: '',
+        },
+      }),
+    },
+  };
+});
 
 describe('app client and help page', () => {
   beforeEach(() => {
