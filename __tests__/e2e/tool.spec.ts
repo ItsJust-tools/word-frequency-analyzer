@@ -1,139 +1,306 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type TestInfo } from '@playwright/test';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
-async function closeBackdropIfOpen(page: import('@playwright/test').Page) {
-  const backdrop = page.locator('.sidebar-backdrop');
-  for (let i = 0; i < 3; i++) {
-    const visible = await backdrop.isVisible().catch(() => false);
-    if (!visible) return;
-    await backdrop.evaluate((el) => (el as HTMLElement).click());
-    await page.waitForTimeout(100);
-  }
+const MOBILE = 'Mobile';
+
+function isMobile(testInfo: TestInfo): boolean {
+  return testInfo.project.name.includes(MOBILE);
 }
 
-async function ensureToolbarInteractable(page: import('@playwright/test').Page) {
-  await closeBackdropIfOpen(page);
-  const backdrop = page.locator('.sidebar-backdrop');
-  if (await backdrop.isVisible().catch(() => false)) {
-    await page.keyboard.press('Control+b');
-    await expect(backdrop).toBeHidden();
-  }
+function configuredToolName(): string {
+  const cfg = readFileSync(join(process.cwd(), 'src/tool/tool.config.ts'), 'utf-8');
+  const m = cfg.match(/name:\s*'([^']+)'/);
+  return m ? m[1] : '';
 }
 
-async function typeInNotepad(page: import('@playwright/test').Page, text: string) {
-  await ensureToolbarInteractable(page);
-  const textarea = page.locator('.notepad-textarea');
-  await textarea.fill(text);
+/** This tool's state shape (see src/tool/tool-definition.ts DEFAULT_STATE). */
+function toolState(input: string) {
+  return {
+    input,
+    caseSensitive: false,
+    excludeStopwords: false,
+    normalizeAccents: true,
+    sortMode: 'count',
+    filter: '',
+  };
 }
 
-test('tool loads with correct title', async ({ page }) => {
+/** Import a state JSON through the toolbar's hidden file input (all viewports). */
+async function importStateFile(page: import('@playwright/test').Page, input: string) {
+  const fileInput = page.locator('input[type="file"]');
+  await fileInput.evaluate((el: HTMLInputElement) => {
+    el.style.display = 'block';
+    el.style.visibility = 'visible';
+  });
+  await fileInput.setInputFiles({
+    name: 'state.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(toolState(input))),
+  });
+}
+
+async function openExportMenu(page: import('@playwright/test').Page) {
+  const exportButton = page.getByRole('button', { name: 'Export', exact: true });
+  await expect(exportButton).toBeEnabled();
+  await exportButton.click();
+  const menu = page.getByRole('listbox', { name: 'Export' });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+test('tool loads with its configured title', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
   await page.goto('/');
   const title = await page.title();
-  expect(title).toContain('Notepad');
+  expect(title.length).toBeGreaterThan(0);
+  const name = configuredToolName();
+  if (name.length > 0) expect(title).toContain(name);
+  expect(errors).toEqual([]);
+});
+
+test('tool renders main content area', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('main')).toBeVisible();
+  await expect(page.getByRole('toolbar')).toBeVisible();
 });
 
 test('textarea is editable', async ({ page }) => {
   await page.goto('/');
   const textarea = page.locator('.notepad-textarea');
-  await textarea.fill('Hello Notepad');
-  await expect(textarea).toHaveValue('Hello Notepad');
+  await textarea.fill('Hello word frequency analyzer');
+  await expect(textarea).toHaveValue('Hello word frequency analyzer');
+});
+
+test('case-sensitive toggle is available in the toolbar', async ({ page }) => {
+  await page.goto('/');
+  const checkbox = page.getByLabel('Case-sensitive counting');
+  await expect(checkbox).toBeVisible();
+  await expect(checkbox).not.toBeChecked();
+  await checkbox.click();
+  await expect(checkbox).toBeChecked();
 });
 
 test('undo/redo buttons enable/disable correctly', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
   await page.goto('/');
-  await ensureToolbarInteractable(page);
 
   const undoButton = page.getByRole('button', { name: 'Undo (Ctrl+Z)' });
   const redoButton = page.getByRole('button', { name: 'Redo (Ctrl+Y)' });
   await expect(undoButton).toBeDisabled();
   await expect(redoButton).toBeDisabled();
 
-  if (testInfo.project.name.includes('Mobile')) {
-    const fileInput = page.locator('input[type="file"]');
-    await fileInput.evaluate((el: HTMLInputElement) => {
-      el.style.display = 'block';
-      el.style.visibility = 'visible';
-    });
-    await fileInput.setInputFiles({
-      name: 'undo-mobile.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from(JSON.stringify({ text: 'undo mobile', fontSize: 16 })),
-    });
+  if (isMobile(testInfo)) {
+    // Filling the textarea via touch is awkward on mobile viewports; set state via import.
+    await importStateFile(page, 'hello world');
   } else {
-    await typeInNotepad(page, 'hello world');
+    await page.locator('.notepad-textarea').fill('hello world');
   }
 
   await expect(undoButton).toBeEnabled();
   await expect(redoButton).toBeDisabled();
 
-  if (testInfo.project.name.includes('Mobile')) {
-    await expect(undoButton).toBeVisible();
+  if (isMobile(testInfo)) {
     return;
   }
 
-  await undoButton.click({ force: true });
+  await undoButton.click();
+  await expect(undoButton).toBeDisabled();
   await expect(redoButton).toBeEnabled();
 
-  await redoButton.click({ force: true });
+  await redoButton.click();
+  await expect(undoButton).toBeEnabled();
+  await expect(redoButton).toBeDisabled();
+});
+
+test('undo/redo via keyboard shortcuts', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+  await page.goto('/');
+
+  const undoButton = page.getByRole('button', { name: 'Undo (Ctrl+Z)' });
+  const redoButton = page.getByRole('button', { name: 'Redo (Ctrl+Y)' });
+  await expect(undoButton).toBeDisabled();
+
+  if (isMobile(testInfo)) {
+    await importStateFile(page, 'keyboard test');
+  } else {
+    await page.locator('.notepad-textarea').fill('keyboard test');
+  }
+
+  await expect(undoButton).toBeEnabled();
+  await expect(redoButton).toBeDisabled();
+
+  await page.locator('body').press('Control+z');
+  await expect(undoButton).toBeDisabled();
+  await expect(redoButton).toBeEnabled();
+
+  await page.locator('body').press('Control+Shift+z');
+  await expect(undoButton).toBeEnabled();
   await expect(redoButton).toBeDisabled();
 });
 
 test('export dropdown opens and shows JSON format', async ({ page }, testInfo) => {
   await page.goto('/');
-  await ensureToolbarInteractable(page);
-  const exportButton = page.getByRole('button', { name: /export/i });
-  await exportButton.click({ force: true });
-  if (testInfo.project.name.includes('Mobile')) {
-    await expect(exportButton).toBeVisible();
-    return;
-  }
-  const menu = page.getByRole('listbox');
-  await expect(menu).toBeVisible();
+  const menu = await openExportMenu(page);
   await expect(page.getByRole('option', { name: /JSON/ })).toBeVisible();
-  await page.click('body');
-  await expect(menu).not.toBeVisible();
+  if (!isMobile(testInfo)) {
+    await page.locator('body').click({ position: { x: 2, y: 2 } });
+    await expect(menu).toBeHidden();
+  }
 });
 
-test('sidebar toggle button works', async ({ page }) => {
+test('import from json file works', async ({ page }) => {
   await page.goto('/');
-  await ensureToolbarInteractable(page);
-  const sidebarToggle = page.locator('.toolbar-btn-sidebar');
-  const sidebar = page.locator('.tool-shell-sidebar');
-  const mobile =
-    (await page.viewportSize())?.width !== undefined && (await page.viewportSize())!.width <= 768;
-  const isCollapsed = await sidebar.evaluate((el) => el.classList.contains('collapsed'));
-  if (isCollapsed) {
-    await sidebarToggle.click();
-    await expect(sidebar).toHaveClass(/open/);
-    if (mobile) {
-      await page.locator('.sidebar-backdrop').click();
-    } else {
-      await sidebarToggle.click();
-    }
-    await expect(sidebar).toHaveClass(/collapsed/);
-    return;
+  await importStateFile(page, 'Imported Note');
+  await expect
+    .poll(() => page.locator('.notepad-textarea').inputValue())
+    .toContain('Imported Note');
+});
+
+test('export json download triggers', async ({ page }) => {
+  await page.goto('/');
+  const menu = await openExportMenu(page);
+  const jsonOption = menu.getByRole('option', { name: /JSON/ });
+  const [download] = await Promise.all([page.waitForEvent('download'), jsonOption.click()]);
+  expect(download.suggestedFilename()).toMatch(/\.json$/);
+});
+
+test('image export downloads trigger for screenshot formats', async ({ page }) => {
+  await page.goto('/');
+
+  const expected: Array<{ option: RegExp; ext: RegExp }> = [
+    { option: /PNG/, ext: /\.png$/i },
+    { option: /JPEG/, ext: /\.(jpg|jpeg)$/i },
+    { option: /WebP/i, ext: /\.webp$/i },
+  ];
+
+  for (const format of expected) {
+    const menu = await openExportMenu(page);
+    const option = menu.getByRole('option', { name: format.option });
+    await expect(option).toBeVisible();
+    const [download] = await Promise.all([page.waitForEvent('download'), option.click()]);
+    expect(download.suggestedFilename()).toMatch(format.ext);
   }
-  await expect(sidebar).toHaveClass(/open/);
-  if (mobile) {
-    await page.locator('.sidebar-backdrop').click();
-  } else {
-    await sidebarToggle.click();
-  }
-  await expect(sidebar).toHaveClass(/collapsed/);
+});
+
+test('pdf export triggers print dialog', async ({ page }) => {
+  await page.goto('/');
+  const menu = await openExportMenu(page);
+  const pdfOption = menu.getByRole('option', { name: /PDF/i });
+  await expect(pdfOption).toBeVisible();
+
+  const consolePromise = new Promise<string>((resolve) => {
+    const handler = (msg: import('@playwright/test').ConsoleMessage) => {
+      const text = msg.text();
+      if (text.includes('__printIntercepted__')) {
+        page.off('console', handler);
+        resolve(text);
+      }
+    };
+    page.on('console', handler);
+  });
+
+  // Intercept the print iframe via MutationObserver + stubbed print()
+  await page.evaluate(() => {
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (node instanceof HTMLIFrameElement) {
+            try {
+              const cw = node.contentWindow;
+              if (cw) {
+                cw.print = () => {
+                  console.log('__printIntercepted__');
+                };
+              }
+            } catch {
+              // cross-origin iframe, ignore
+            }
+          }
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+
+  await pdfOption.click();
+
+  const consoleText = await consolePromise;
+  expect(consoleText).toContain('__printIntercepted__');
 });
 
 test('dark mode toggle works', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
   await page.goto('/');
-  await ensureToolbarInteractable(page);
-  const themeButton = page.getByRole('button', { name: /Switch to dark mode/i });
-  if (await themeButton.isVisible()) {
-    await themeButton.click();
-    const html = page.locator('html');
-    await expect(html).toHaveAttribute('data-theme', 'dark');
+  const html = page.locator('html');
+  const startTheme = await html.getAttribute('data-theme');
+  const themeButton = page.getByRole('button', {
+    name: startTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
+  });
+  await expect(themeButton).toBeEnabled();
+  await themeButton.click();
+  await expect(html).toHaveAttribute('data-theme', startTheme === 'dark' ? 'light' : 'dark');
+  await page
+    .getByRole('button', {
+      name: startTheme === 'dark' ? 'Switch to dark mode' : 'Switch to light mode',
+    })
+    .click();
+  await expect(html).toHaveAttribute('data-theme', startTheme ?? 'light');
+});
 
-    const lightButton = page.getByRole('button', { name: /Switch to light mode/i });
-    await lightButton.click();
-    await expect(html).toHaveAttribute('data-theme', 'light');
+test('sidebar toggle button works', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+  });
+  await page.goto('/');
+  const sidebar = page.locator('.tool-shell-sidebar');
+  const isMobileViewport = page.viewportSize()!.width <= 768;
+
+  if (isMobileViewport) {
+    await expect(sidebar).toHaveClass(/collapsed/);
+    await page.locator('[aria-label="Show options"]').click();
+    await expect(sidebar).toHaveClass(/open/);
+    await page.locator('.sidebar-backdrop').click();
+    await expect(sidebar).toHaveClass(/collapsed/);
+    return;
   }
+
+  // Desktop: sidebar starts open.
+  await expect(sidebar).toHaveClass(/open/);
+  await page.locator('[aria-label="Close sidebar"]').click();
+  await expect(sidebar).toHaveClass(/collapsed/);
+  await page.locator('[aria-label="Toggle sidebar"]').click();
+  await expect(sidebar).toHaveClass(/open/);
+});
+
+test('mobile sidebar backdrop closes sidebar', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.goto('/');
+  const sidebar = page.locator('.tool-shell-sidebar');
+  await expect(sidebar).toHaveClass(/collapsed/);
+
+  await page.locator('[aria-label="Show options"]').click();
+  await expect(sidebar).toHaveClass(/open/);
+  await expect(page.locator('.sidebar-backdrop')).toBeVisible();
+
+  await page.locator('.sidebar-backdrop').evaluate((el) => (el as HTMLElement).click());
+  await expect(sidebar).toHaveClass(/collapsed/);
+});
+
+test('keyboard shortcuts overlay opens and closes', async ({ page, browserName }) => {
+  if (browserName !== 'chromium') return;
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Keyboard shortcuts' }).click();
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeHidden();
 });
 
 test('SEO meta tags are present', async ({ page }) => {
@@ -179,182 +346,6 @@ test('robots.txt is accessible', async ({ page }) => {
   expect(content).toMatch(/User-[Aa]gent/);
 });
 
-test('keyboard shortcuts overlay opens and closes', async ({ page, browserName }, _testInfo) => {
-  if (browserName !== 'chromium') return;
-  await page.goto('/');
-  await ensureToolbarInteractable(page);
-  if (_testInfo.project.name.includes('Mobile')) {
-    await expect(page.getByRole('button', { name: /keyboard shortcuts/i })).toBeVisible();
-    return;
-  }
-  await page.getByRole('button', { name: /keyboard shortcuts/i }).click({ force: true });
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).not.toBeVisible();
-});
-
-test('undo/redo via keyboard shortcuts', async ({ page }, testInfo) => {
-  await page.addInitScript(() => {
-    localStorage.clear();
-  });
-  await page.goto('/');
-  await ensureToolbarInteractable(page);
-  if (testInfo.project.name.includes('Mobile')) {
-    const fileInput = page.locator('input[type="file"]');
-    await fileInput.evaluate((el: HTMLInputElement) => {
-      el.style.display = 'block';
-      el.style.visibility = 'visible';
-    });
-    await fileInput.setInputFiles({
-      name: 'keyboard-mobile.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from(JSON.stringify({ text: 'keyboard mobile' })),
-    });
-  } else {
-    await typeInNotepad(page, 'keyboard test');
-  }
-
-  const undoButton = page.getByRole('button', { name: 'Undo (Ctrl+Z)' });
-  await expect(undoButton).toBeEnabled();
-
-  const redoButton = page.getByRole('button', { name: 'Redo (Ctrl+Y)' });
-  await expect(redoButton).toBeDisabled();
-
-  await page.locator('body').press('Control+z');
-  await expect(redoButton).toBeEnabled();
-
-  await page.locator('body').press('Control+Shift+z');
-  await expect(undoButton).toBeEnabled();
-});
-
-test('mobile sidebar backdrop closes sidebar', async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 667 });
-  await page.goto('/');
-
-  await ensureToolbarInteractable(page);
-  const sidebar = page.locator('.tool-shell-sidebar');
-
-  await page.locator('[aria-label="Show options"]').click();
-  await expect(sidebar).toHaveClass(/open/);
-
-  await page.locator('.sidebar-backdrop').evaluate((el) => (el as HTMLElement).click());
-  await expect(sidebar).toHaveClass(/collapsed/);
-});
-
-test('import from json file works', async ({ page }) => {
-  await page.goto('/');
-  await ensureToolbarInteractable(page);
-
-  const fileContent = JSON.stringify({ text: 'Imported Note' });
-
-  const fileInput = page.locator('input[type="file"]');
-  await fileInput.evaluate((el: HTMLInputElement) => {
-    el.style.display = 'block';
-    el.style.visibility = 'visible';
-  });
-  await fileInput.setInputFiles({
-    name: 'test.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(fileContent),
-  });
-
-  await expect
-    .poll(() => page.locator('.notepad-textarea').inputValue())
-    .toContain('Imported Note');
-});
-
-test('export json download triggers', async ({ page }) => {
-  await page.goto('/');
-  await ensureToolbarInteractable(page);
-
-  const exportButton = page.getByRole('button', { name: /export/i });
-  await exportButton.click({ force: true });
-
-  const jsonOption = page.getByRole('option', { name: /JSON/ });
-  const [download] = await Promise.all([page.waitForEvent('download'), jsonOption.click()]);
-  expect(download.suggestedFilename()).toMatch(/\.json$/);
-});
-
-test('image export downloads trigger for screenshot formats', async ({ page }, testInfo) => {
-  await page.goto('/');
-  await ensureToolbarInteractable(page);
-
-  if (testInfo.project.name.includes('Mobile')) {
-    await expect(page.getByRole('button', { name: /export/i })).toBeVisible();
-    return;
-  }
-
-  const expected: Array<{ option: RegExp; ext: RegExp }> = [
-    { option: /PNG/, ext: /\.png$/i },
-    { option: /JPEG/, ext: /\.(jpg|jpeg)$/i },
-    { option: /webp/i, ext: /\.webp$/i },
-  ];
-
-  for (const format of expected) {
-    await ensureToolbarInteractable(page);
-    await page.getByRole('button', { name: /export/i }).click({ force: true });
-    const option = page.getByRole('option', { name: format.option });
-    await expect(option).toBeVisible();
-    const [download] = await Promise.all([page.waitForEvent('download'), option.click()]);
-    expect(download.suggestedFilename()).toMatch(format.ext);
-  }
-});
-
-test('pdf export triggers print dialog', async ({ page }, testInfo) => {
-  await page.goto('/');
-  await ensureToolbarInteractable(page);
-
-  const exportButton = page.getByRole('button', { name: /export/i });
-  await exportButton.click({ force: true });
-
-  if (testInfo.project.name.includes('Mobile')) {
-    await expect(exportButton).toBeVisible();
-    return;
-  }
-
-  const pdfOption = page.getByRole('option', { name: /pdf/i });
-  await expect(pdfOption).toBeVisible();
-
-  // Intercept the hidden print iframe via MutationObserver + console log
-  const consolePromise = new Promise<string>((resolve) => {
-    const handler = (msg: import('@playwright/test').ConsoleMessage) => {
-      const text = msg.text();
-      if (text.includes('__printIntercepted__')) {
-        page.off('console', handler);
-        resolve(text);
-      }
-    };
-    page.on('console', handler);
-  });
-
-  await page.evaluate(() => {
-    const observer = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const node of m.addedNodes) {
-          if (node instanceof HTMLIFrameElement) {
-            try {
-              const cw = (node as HTMLIFrameElement).contentWindow;
-              if (cw) {
-                cw.print = () => {
-                  console.log('__printIntercepted__');
-                };
-              }
-            } catch {
-              // cross-origin iframe, ignore
-            }
-          }
-        }
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  });
-
-  await pdfOption.click();
-
-  const consoleText = await consolePromise;
-  expect(consoleText).toContain('__printIntercepted__');
-});
-
 test('404 page works', async ({ page }) => {
   const response = await page.goto('/this-page-does-not-exist');
   expect(response?.status()).toBe(404);
@@ -368,22 +359,5 @@ test('visual regression — default view', async ({ page, browserName }) => {
   await page.goto('/');
   await page.waitForSelector('.tool-shell-canvas');
   await expect(page.locator('.tool-shell')).toBeVisible();
+  await expect(page.getByRole('main')).toBeVisible();
 });
-
-// test('visual regression — dark mode', async ({ page }) => {
-//   await page.goto('/');
-//   await page.waitForSelector('.tool-shell-canvas');
-//   const themeButton = page.getByRole('button', { name: /Switch to dark mode/i });
-//   if (await themeButton.isVisible()) {
-//     await themeButton.click();
-//     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-//     await expect(page).toHaveScreenshot('tool-dark.png', { maxDiffPixels: 100 });
-//   }
-// });
-
-// test('visual regression — mobile view', async ({ page }) => {
-//   await page.setViewportSize({ width: 375, height: 667 });
-//   await page.goto('/');
-//   await page.waitForSelector('.tool-shell-canvas');
-//   await expect(page).toHaveScreenshot('tool-mobile.png', { maxDiffPixels: 100 });
-// });

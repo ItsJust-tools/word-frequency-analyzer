@@ -11,17 +11,8 @@ import {
 } from 'react';
 import { ToolShell, useTool, ImportExport } from '@itsjust/core';
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
-import {
-  toolConfig,
-  templateBaseVersion,
-  ToolCanvas,
-  ToolToolbar,
-  ToolSidebar,
-} from '@/tool';
-import {
-  wordFrequencyTool as wordFrequencyToolDef,
-  type ToolState,
-} from '@/tool/tool-definition';
+import { toolConfig, templateBaseVersion, ToolCanvas, ToolToolbar, ToolSidebar } from '@/tool';
+import { wordFrequencyTool as wordFrequencyToolDef, type ToolState } from '@/tool/tool-definition';
 
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 72;
@@ -134,7 +125,7 @@ export default function ToolClient() {
   const sidebarContent = <ToolSidebar state={state} onChange={handleStateChange} />;
 
   const canvasContent = (
-    <ToolCanvas state={state} onChange={handleStateChange} />
+    <ToolCanvas state={state} onChange={handleStateChange} canvasRef={canvasRef} />
   );
 
   const statusBarContent = (

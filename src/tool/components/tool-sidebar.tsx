@@ -2,12 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { ToolState, SortMode, WordCount } from '../types';
-import {
-  analyzeWords,
-  filterEntries,
-  toCsv,
-  toJson,
-} from '../tool-definition';
+import { analyzeWords, filterEntries, toCsv, toJson } from '../tool-definition';
 
 interface ToolSidebarProps {
   state: ToolState;

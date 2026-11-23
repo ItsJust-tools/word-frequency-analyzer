@@ -106,7 +106,8 @@ describe('app and seo', () => {
       success: true,
       data: { content: 'x', title: 'My Note' },
     });
-    const exporters = (notepadTool as { exporters?: Array<{ loader: ExporterLoader }> }).exporters ?? [];
+    const exporters =
+      (notepadTool as { exporters?: Array<{ loader: ExporterLoader }> }).exporters ?? [];
     expect(exporters).toHaveLength(4);
     const first = exporters[0];
     expect(first).toBeDefined();
@@ -135,6 +136,8 @@ describe('app and seo', () => {
 
     expect(screen.getByRole('link', { name: 'Open help page' })).toBeInTheDocument();
     expect(screen.getAllByText('2')).toHaveLength(3); // total words, a count cell, table rank
-    expect(screen.getByRole('application', { name: 'Word frequency analyzer canvas' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('application', { name: 'Word frequency analyzer canvas' })
+    ).toBeInTheDocument();
   });
 });

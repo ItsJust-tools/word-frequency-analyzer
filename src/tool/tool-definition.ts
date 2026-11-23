@@ -9,9 +9,56 @@ export { templateBaseVersion };
 const SORT_MODES: SortMode[] = ['count', 'alphabetical', 'first-appearance'];
 
 export const STOPWORDS = new Set([
-  'a','an','and','are','as','at','be','but','by','for','from','had','has','have','he','her','his',
-  'i','if','in','into','is','it','its','not','of','on','or','our','she','so','that','the','their',
-  'there','they','this','to','was','we','were','what','when','which','who','will','with','would','you','your',
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'but',
+  'by',
+  'for',
+  'from',
+  'had',
+  'has',
+  'have',
+  'he',
+  'her',
+  'his',
+  'i',
+  'if',
+  'in',
+  'into',
+  'is',
+  'it',
+  'its',
+  'not',
+  'of',
+  'on',
+  'or',
+  'our',
+  'she',
+  'so',
+  'that',
+  'the',
+  'their',
+  'there',
+  'they',
+  'this',
+  'to',
+  'was',
+  'we',
+  'were',
+  'what',
+  'when',
+  'which',
+  'who',
+  'will',
+  'with',
+  'would',
+  'you',
+  'your',
 ]);
 
 /** Normalize accents (é -> e, ü -> u) using NFD decomposition. */
@@ -23,7 +70,10 @@ export function stripAccents(word: string): string {
  * Tokenize text: strip punctuation, lowercase when not case-sensitive.
  * Numbers are kept as tokens.
  */
-export function tokenize(text: string, state: Pick<ToolState, 'caseSensitive' | 'normalizeAccents'>): string[] {
+export function tokenize(
+  text: string,
+  state: Pick<ToolState, 'caseSensitive' | 'normalizeAccents'>
+): string[] {
   const normalized = (text ?? '')
     // separate punctuation/symbols from words, but keep hyphens and apostrophes
     .replace(/[^\p{L}\p{N}'-]/gu, (ch) => (ch === "'" || ch === '\u2019' ? "'" : ' '));
@@ -44,9 +94,7 @@ export function tokenize(text: string, state: Pick<ToolState, 'caseSensitive' | 
 export function analyzeWords(state: ToolState): WordStats {
   const tokens = tokenize(state.input, state);
   const filtered = state.excludeStopwords
-    ? tokens.filter(
-        (t) => !STOPWORDS.has(state.caseSensitive ? t : t.toLowerCase())
-      )
+    ? tokens.filter((t) => !STOPWORDS.has(state.caseSensitive ? t : t.toLowerCase()))
     : tokens;
 
   const counts = new Map<string, { count: number; firstIndex: number }>();
@@ -99,7 +147,11 @@ export function rankEntries(entries: WordCount[]): WordCount[] {
   return entries.map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 
-export function filterEntries(entries: WordCount[], filter: string, caseSensitive: boolean): WordCount[] {
+export function filterEntries(
+  entries: WordCount[],
+  filter: string,
+  caseSensitive: boolean
+): WordCount[] {
   const query = caseSensitive ? filter : filter.toLowerCase();
   if (!query) return entries;
   return entries.filter((e) => (caseSensitive ? e.word : e.word.toLowerCase()).includes(query));

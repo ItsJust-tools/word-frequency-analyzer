@@ -18,7 +18,12 @@ export function ToolCanvas({ state, onChange, canvasRef }: ToolCanvasProps) {
   );
 
   return (
-    <div ref={canvasRef} className="wfa-canvas" role="application" aria-label="Word frequency analyzer canvas">
+    <div
+      ref={canvasRef}
+      className="wfa-canvas"
+      role="application"
+      aria-label="Word frequency analyzer canvas"
+    >
       <div className="notepad-canvas h-full">
         <textarea
           className="notepad-textarea h-48"
