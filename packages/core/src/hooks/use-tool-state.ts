@@ -204,16 +204,19 @@ export function useToolState<T>(initial: T, options: Partial<AutoSaveOptions> = 
 
   const setData = useCallback(
     (updater: T | ((prev: T) => T)) => {
-      setDataInternal((prev) => {
-        const next = typeof updater === 'function' ? (updater as (prev: T) => T)(prev) : updater;
-        historyRef.current = [...historyRef.current, next].slice(-maxHistory);
-        futureRef.current = [];
-        setCanUndo(historyRef.current.length > 1);
-        setCanRedo(false);
-        return next;
-      });
+      // Resolve the next value outside the React updater. React 19 double-invokes
+      // updater functions in development to detect impurity, so mutating refs or
+      // calling setState inside the updater would double-push history entries in
+      // dev builds (undo/redo then misbehaves: one edit needs two undos).
+      const next = typeof updater === 'function' ? (updater as (prev: T) => T)(data) : updater;
+      const nextHistory = [...historyRef.current, next].slice(-maxHistory);
+      historyRef.current = nextHistory;
+      futureRef.current = [];
+      setCanUndo(nextHistory.length > 1);
+      setCanRedo(false);
+      setDataInternal(next);
     },
-    [maxHistory]
+    [data, maxHistory]
   );
 
   const undo = useCallback(() => {

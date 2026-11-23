@@ -216,6 +216,29 @@ describe('useToolState', () => {
     warnSpy.mockRestore();
   });
 
+  it('does not duplicate history entries for function-form updaters', () => {
+    // Regression: setData used to mutate historyRef inside the React state updater.
+    // React double-invokes updater functions in development builds to detect
+    // impurity, which pushed every edit into the history twice — one undo was not
+    // enough to reach the previous state (canUndo stayed true). The duplicate
+    // entries only manifest against a dev server (e.g. the Playwright webServer
+    // used by CI), so the primary guard is the undo/redo E2E suite; this test
+    // locks in the one-edit → one-undo invariant regardless of environment.
+    const { result } = renderHook(() => useToolState({ text: 'a' }, { key: 'test-pure-updater' }));
+
+    act(() => result.current.setData((prev) => ({ text: prev.text + 'b' })));
+
+    // One edit → exactly one undo step: one undo returns to the initial state
+    // and there is nothing left to undo.
+    expect(result.current.data).toEqual({ text: 'ab' });
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => result.current.undo());
+    expect(result.current.data).toEqual({ text: 'a' });
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(true);
+  });
+
   it('invokes onStorageWarning when history persistence fails', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const onStorageWarning = vi.fn();

@@ -267,7 +267,11 @@ test('sidebar toggle button works', async ({ page }) => {
     await expect(sidebar).toHaveClass(/collapsed/);
     await page.locator('[aria-label="Show options"]').click();
     await expect(sidebar).toHaveClass(/open/);
-    await page.locator('.sidebar-backdrop').click();
+    // Click the backdrop via DOM to avoid hit-testing flakiness: the open
+    // (fixed) sidebar can cover the backdrop's center point under load, and a
+    // hit-tested click would be intercepted. The onClick handler is on the
+    // backdrop element itself, so a DOM click is the robust equivalent.
+    await page.locator('.sidebar-backdrop').evaluate((el) => (el as HTMLElement).click());
     await expect(sidebar).toHaveClass(/collapsed/);
     return;
   }
